@@ -1,32 +1,59 @@
 package main
 
 import (
+	"embed"
+	"io/fs"
 	"log"
+	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 
 	"github.com/gin-gonic/gin"
 	"github.com/zserge/lorca"
 )
 
+//go:embed fe/dist/*
+var FS embed.FS
+
 func main() {
 	go func() {
 		gin.SetMode(gin.DebugMode)
-		r := gin.Default()
-		r.GET("/", func(c *gin.Context) {
-			c.Writer.Write([]byte("hello world"))
+		router := gin.Default()
+		staticFiles, _ := fs.Sub(FS, "fe/dist")
+		router.StaticFS("/static", http.FS(staticFiles))
+		router.NoRoute(func(c *gin.Context) {
+			path := c.Request.URL.Path
+			if strings.HasPrefix(path, "/static/") {
+				reader, err := staticFiles.Open("index.html")
+				if err != nil {
+					log.Fatal(err)
+				}
+				defer reader.Close()
+				stat, err := reader.Stat()
+				if err != nil {
+					log.Fatal(err)
+				}
+				c.DataFromReader(http.StatusOK, stat.Size(), "text/html", reader, nil)
+			} else {
+				c.Status(http.StatusNotFound)
+			}
 		})
-		r.Run(":8080") // listen and serve on 0.0.0.0:8080 (for windows "localhost:8080")
+
+		router.Run(":8080")
+
 	}()
 	// Create UI with basic HTML passed via data URI
-	ui, err := lorca.New("http://127.0.0.1:8080", "", 480, 320, "--remote-allow-origins=*")
+	ui, err := lorca.New("http://127.0.0.1:8080/static/index.html", "", 480, 320, "--remote-allow-origins=*")
 	if err != nil {
 		log.Fatal(err)
 	}
 	defer ui.Close()
 
 	// chromePath := "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
+	// cmd := exec.Command(chromePath, "--app=http://127.0.0.1"8080")
+	// cmd.Start()
 	//处理中断和终止信号
 	c := make(chan os.Signal, 1)
 	signal.Notify(c, syscall.SIGINT, syscall.SIGTERM)
