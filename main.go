@@ -6,6 +6,7 @@ import (
 	"io/fs"
 	"io/ioutil"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -15,6 +16,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
+	"github.com/skip2/go-qrcode"
 	"github.com/zserge/lorca"
 )
 
@@ -28,6 +30,11 @@ func main() {
 		router := gin.Default()
 		staticFiles, _ := fs.Sub(FS, "frontend/dist")
 		router.StaticFS("/static", http.FS(staticFiles))
+		router.POST("/api/v1/texts", TextsController)
+		router.GET("/api/v1/addresses", AddressController)
+		router.GET("/uploads/:path", UploadController)
+		router.GET("/api/v1/qrcodes", QrcodesController)
+
 		router.NoRoute(func(c *gin.Context) {
 			path := c.Request.URL.Path
 			if strings.HasPrefix(path, "/static/") {
@@ -45,20 +52,19 @@ func main() {
 				c.Status(http.StatusNotFound)
 			}
 		})
-		router.POST("/api/v1/texts", TextsController)
-		router.Run(":8080")
+		router.Run(":27149")
 
 	}()
 
 	// Create UI with basic HTML passed via data URI
-	ui, err := lorca.New("http://127.0.0.1:8080/static/index.html", "", 480, 320, "--remote-allow-origins=*")
+	ui, err := lorca.New("http://127.0.0.1:27149/static/index.html", "", 480, 320, "--remote-allow-origins=*")
 	if err != nil {
 		log.Fatal(err)
 	}
 	defer ui.Close()
 
 	// chromePath := "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
-	// cmd := exec.Command(chromePath, "--app=http://127.0.0.1"8080")
+	// cmd := exec.Command(chromePath, "--app=http://127.0.0.1"27149")
 	// cmd.Start()
 	//处理中断和终止信号
 	c := make(chan os.Signal, 1)
@@ -100,5 +106,55 @@ func TextsController(c *gin.Context) {
 			log.Fatal(err)
 		}
 		c.JSON(http.StatusOK, gin.H{"url": "/" + fullpath})
+	}
+}
+
+func AddressController(c *gin.Context) {
+	addrs, _ := net.InterfaceAddrs()
+	var result []string
+	for _, addr := range addrs {
+		if ipnet, ok := addr.(*net.IPNet); ok && !ipnet.IP.IsLoopback() {
+			if ipnet.IP.To4() != nil {
+				result = append(result, ipnet.IP.String())
+			}
+		}
+	}
+	c.JSON(http.StatusOK, gin.H{"addresses": result})
+}
+
+func GetUploadsDir() (uploads string) {
+	exe, err := os.Executable()
+	if err != nil {
+		log.Fatal(err)
+	}
+	dir := filepath.Dir(exe)
+	uploads = filepath.Join(dir, "uploads")
+	return
+}
+
+// 从前端接口的参数里面获取要下载的文件名，然后返给前端
+func UploadController(c *gin.Context) {
+	if path := c.Params.ByName("path"); path != "" {
+		target := filepath.Join(GetUploadsDir(), path)
+		c.Header("Content-Description", "File Transfer")
+		c.Header("Content-Transfer-Encoding", "binary")
+		c.Header("Content-Disposition", "attachment; filename="+path)
+		c.Header("Content-Type", "application/octet-stream")
+		c.File(target)
+	} else {
+		c.Status(http.StatusNotFound)
+	}
+}
+
+// 生成二维码
+func QrcodesController(c *gin.Context) {
+	if content := c.Query("content"); content != "" {
+		png, err := qrcode.Encode(content, qrcode.Medium, 256)
+		if err != nil {
+			log.Fatal(err)
+		}
+		c.Data(http.StatusOK, "image/png", png)
+	} else {
+		c.Status(http.StatusNotFound)
 	}
 }
