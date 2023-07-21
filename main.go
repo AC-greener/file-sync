@@ -42,7 +42,7 @@ func main() {
 				c.Status(http.StatusNotFound)
 			}
 		})
-
+		router.POST("/api/v1/texts", TextsController)
 		router.Run(":8080")
 
 	}()
@@ -67,4 +67,8 @@ func main() {
 	case <-ui.Done():
 	}
 	// Wait until UI window is closed
+}
+
+func TextsController(c *gin.Context) {
+	
 }
