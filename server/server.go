@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"strings"
 	c "test/server/controller"
+	"test/server/ws"
 
 	"github.com/gin-gonic/gin"
 )
@@ -17,8 +18,13 @@ var FS embed.FS
 func Run() {
 	gin.SetMode(gin.ReleaseMode)
 	router := gin.Default()
+	hub := ws.NewHub()
+	go hub.Run()
 	staticFiles, _ := fs.Sub(FS, "frontend/dist")
 	router.StaticFS("/static", http.FS(staticFiles))
+	router.GET("/ws", func(c *gin.Context) {
+		ws.HttpController(c, hub)
+	})
 	router.POST("/api/v1/texts", c.TextsController)
 	router.GET("/api/v1/addresses", c.AddressController)
 	router.GET("/uploads/:path", c.UploadController)
